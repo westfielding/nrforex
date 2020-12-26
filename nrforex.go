@@ -5,22 +5,26 @@ import (
 	"flag"
 	"fmt"
 	"net/http"
+	"strings"
+	"time"
 )
 
 type tradecard struct {
 	fromCurrency   string
 	toCurrency     string
-	rate           float64
+	finRate        float64
+	alphaRate      float64
 	boundaryHigher float64
 	boundaryLower  float64
 }
 
 //
 
-func newTradeCard(fromCurrency string, toCurrency string, rate float64, boundaryHigher float64, boundaryLower float64) *tradecard {
+func newTradeCard(fromCurrency string, toCurrency string, finRate float64, alphaRate float64, boundaryHigher float64, boundaryLower float64) *tradecard {
 	t := tradecard{fromCurrency: fromCurrency}
 	t = tradecard{toCurrency: toCurrency}
-	t = tradecard{rate: rate}
+	t = tradecard{finRate: finRate}
+	t = tradecard{alphaRate: alphaRate}
 	t = tradecard{boundaryHigher: boundaryHigher}
 	t = tradecard{boundaryLower: boundaryLower}
 	return &t
@@ -34,40 +38,44 @@ func main() {
 	toPtr := flag.String("To", "USD", "To Currency")
 	hbPtr := flag.Float64("high", 1.000, "Higher Boundary")
 	lbPtr := flag.Float64("low", 1.000, "Lower Boundary")
+	ftokenPtr := flag.String("finntoken", "", "Finnhub token")
+	atokenPtr := flag.String("alphatoken", "", "AlphaVantage token")
 
-	client := http.Client{}
-	request, err := http.NewRequest("GET", "https://finnhub.io/api/v1/forex/rates?base=USD&token=", nil)
-	if err != nil {
-		fmt.Println(err)
-	}
+	finnhubToken := *ftokenPtr
+	alphavantageToken := *atokenPtr
 
-	resp, err := client.Do(request)
-	if err != nil {
-		fmt.Println(err)
-	}
+	fRate := queryFinnhub(*fromPtr, *toPtr, finnhubToken)
+	aRate := queryAlphaVantage(*fromPtr, *toPtr, alphavantageToken)
 
-	var result map[string]interface{}
-	json.NewDecoder(resp.Body).Decode(&result)
-	fmt.Println(result)
-
-	fmt.Println("HERE")
-
-	currentTrade := tradecard{fromCurrency: *fromPtr, toCurrency: *toPtr, rate: 1.32456, boundaryHigher: *hbPtr, boundaryLower: *lbPtr}
+	//Build Trade Card
+	currentTrade := tradecard{fromCurrency: *fromPtr, toCurrency: *toPtr, finRate: fRate, alphaRate: aRate, boundaryHigher: *hbPtr, boundaryLower: *lbPtr}
+	fmt.Println("Trade Card Created")
 	fmt.Println(currentTrade.fromCurrency)
+	fmt.Println(currentTrade.toCurrency)
+
+	//Scanner - card, frequency, tokens, repetitions
+	marketScan(currentTrade, finnhubToken, alphavantageToken, 60, 480)
+
+	//Alert - End of Program Alert
+	alert("end")
 
 }
 
-func queryAlphaVantage(fromcurrency string, tocurrency string) float32 {
+func queryAlphaVantage(fromcurrency string, tocurrency string, token string) float64 {
 	fmt.Println("Query Alpha")
-	var num float32
+	var num float64
 	num = 1.35672
 	return num
 }
 
-func queryFinnhub(fromcurrency string, tocurrency string) float32 {
+func queryFinnhub(fromcurrency string, tocurrency string, token string) float64 {
 	fmt.Println("Query Finnhub")
+
+	//Service String
+	service := "https://finnhub.io/api/v1/forex/rates?base=" + fromcurrency + "&token=" + token
+
 	client := http.Client{}
-	request, err := http.NewRequest("GET", "https://finnhub.io/api/v1/forex/rates?base=USD&token=", nil)
+	request, err := http.NewRequest("GET", service, nil)
 	if err != nil {
 		fmt.Println(err)
 	}
@@ -82,9 +90,59 @@ func queryFinnhub(fromcurrency string, tocurrency string) float32 {
 	fmt.Println(result)
 
 	//test text
-	var num float32
+	var num float64
 	num = 1.35672
 	return num
+}
+
+func marketScan(currentTrade tradecard, finnhubToken string, alphavantageToken string, frequency int, repetition int) {
+
+	//loop at frequency as defined in seconds and repeat for repitition
+
+	for i := 0; i < repetition; i++ {
+
+		//query prices and check card
+		fRate := queryFinnhub(currentTrade.fromCurrency, currentTrade.toCurrency, finnhubToken)
+		aRate := queryAlphaVantage(currentTrade.fromCurrency, currentTrade.toCurrency, alphavantageToken)
+
+		if fRate > currentTrade.boundaryHigher {
+			fmt.Println("Finn Above")
+			alert("trade")
+		} else if fRate < currentTrade.boundaryLower {
+			fmt.Println("Finn below")
+			alert("trade")
+		} else {
+			fmt.Println("Nothing")
+		}
+
+		if aRate > currentTrade.boundaryHigher {
+			fmt.Println("Alpha Above")
+			alert("trade")
+
+		} else if aRate < currentTrade.boundaryLower {
+			fmt.Println("Alpha below")
+			alert("trade")
+
+		} else {
+			fmt.Println("Nothing")
+		}
+
+		//sleep frequency
+		time.Sleep(time.Duration(frequency) * time.Second)
+
+	}
+
+}
+
+func alert(alertType string) {
+
+	if strings.Compare(alertType, "end") == 0 {
+		fmt.Println("Progran Ending")
+
+	} else {
+		fmt.Println("Trade Possibly")
+	}
+
 }
 
 //Take input of currency pair and boundary values and time range for boudaries
